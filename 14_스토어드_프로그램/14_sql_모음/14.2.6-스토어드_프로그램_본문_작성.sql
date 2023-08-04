@@ -231,3 +231,300 @@ SELECT * FROM error_table;
     스토어드 프로그램에서 핸들러를 정의할 때 에러 번호로 핸들러를 정의할 수 있지만,
     똑같은 원인에 대해 여러 개의 에러 번호를 가지는 경우도 있으므로 에러 번호보다는 "SQLSTATE"를 핸들러에 사용하는 것이 좋다.
 */
+
+#### 14.2.6.4.2 - 핸들러
+-- MySQL스토어드 프로그램을 사용할 때 발생하는 에러나 예외 상황에 대한 핸들링이 필요할 때 사용한다.
+-- DECLARE ... HANDLER  구문을 이용해 사용할 수 있다.
+/*
+    HANDLER 의 문법
+
+    DECLARE handler_type HANDLER
+      FOR condition_value [, condition_value] ... handler_statements
+
+    handler_type
+        CONTINUE : handler_statements 를 실행하고 SP의 마지막 실행 지점으로 다시 돌아가서 나머지 코드를 처리한다.
+        EXIT : 정의된 handler_statements 를 실행한 뒤에 핸들러가 정의된 BEGIN ... END 블록을 벗어난다.
+
+    핸들러가 최상위 BEGIN ... END 블록에 정의 됐다면
+        현재 스토어드 프로그램을 벗어나서 종료된다.
+
+    스토어드 함수에서 EXIT 핸들러가 정의 됐다면
+        이 핸들러의 handler_statements 부분에 함수의 반환 타입에 맞는 적절한 값을 반환하는 코드가 포함돼 있어야 한다.
+*/
+
+/*
+    핸들러 정의 문장의 컨디션 값(Condition value)의 여러 가지 형태 - (SP, 스토어드 프로그램)
+
+    - SQLSTATE 키워드 :
+        SP이 실행되는 도중 어떤 이벤트가 발생했을 때 해당 이벤트의 SQLSTATE 값이 일치할 때 실행되는 핸들러를 정의할 때 사용
+    - SQLWARNING 키워드 :
+        SP에서 코드를 실행하던 중 경고(SQL Warning)가 발생했을 때 실행되는 핸들러를 정의할 때 사용
+        SQLWARNING 키워드는 SQLSTATE 값이 "01"로 시작하는 이벤트를 의미
+    - NOT FOUND 키워드 :
+        SELECT 쿼리 문의 결과가 1건도 없거나 CURSOR 의 레코드를 마지막까지 읽은 뒤이 실행하는 핸들러를 정의할 때 사용
+        NOT FUND 키워드는 SQLSTATE 값이 "02"로 시작되는 이벤트를 의미
+    - SQLEXCEPTION 키워드 :
+        경고(SQL Warning, "01")와 NOT FOUND("02"), "00"(정상 처리)으로 시작하는 SQLSTATE 이외의 모든 케이스를 의미하는 키워드
+    - MySQL의 에러 코드 값을 직접 명시 :
+        코드 실행 중 어떤 이벤트가 발생했을 때 SQLSTATE 값이 아닌 MySQL의 에러 번호 값을 비교해서 실행되는 핸들러를 정의할 때 사용
+
+    - 사용자 정의 CONDITION 생성하고 해당 CONDITION 의 이름을 명시할 수 있다.
+        이때는 SP에서 발생한 이벤트가 정의된 컨디션과 일치하면 핸들러의 처리 내용을 수행한다.
+        condition_value 는 구분자(",")를 이용해 여러 개를 동시에 나열할 수도 있다.
+        값이 "00000"인 SQLSTATE 와 에러 번호 0은 모두 정상적으로 처리됐음을 의미하는 값이라서 condition_value 값으로 사용하면 안 된다.
+*/
+
+-- handler_statements 단순한 명령문 하나만 사용할 수도 있으며, BEGIN ... END 로 감싸 여러 명령문이 포함된 블록을 작성할 수도 있다.
+-- 간단한 핸들러 정의 문장을 살펴보자.
+
+-- SQLSTATE 가 "00", "01", "02" 이외의 값으로 시작하는 에러가 발생했을 때 error_flag 로컬 변수의 값을 1로 설정하고,
+-- 마지막 실행했던 SP의 코드로 돌아가서 계속 실행(CONTINUE)하게 하는 핸들러.
+DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET error_flag = 1;
+
+-- SQLSTATE 가 "00", "01", "02" 이외의 값으로 시작하는 에러가 발생했을 때
+-- 핸들러의 BEGIN ... END 블록으로 감싼 ROLLBACK 과 SELECT 문장을 실행한 후 에러가 발생하는 코드가 포함된 BEGIN ... END 블록을 벗어난다.
+-- 만약, 에러가 발생했던 코드가 SP의 최상위 블록에 있엇다면 SP은 종료된다.
+/*
+    스토어드 프로시저에서는 아래 예제처럼 결과를 읽거나, 사용하지 않는 SELECT 쿼리가 실행되면 MySQL서버는 이 결과를 직시 클라이언트로 전송한다.
+    그래서, SP을 실행하는 도중에 문제가 있으면 사용자의 화면에 'Error occurred - terminating' 메시지가 출력된다.
+    SELECT 를 통해 클라이언트 화면에 표시되는 방식은 스토어드 프로시저에서의 디버깅 용도로만 사용할 수 있고,
+    다른 스토어드 함수나, 트리거, 이벤트에서는 이런 결과 셋을 반환하는 기능을 사용할 수 없다.
+*/
+DECLARE EXIT HANDLER FOR SQLEXCEPTION
+BEGIN
+ROLLBACK;
+SELECT 'Error occurred - terminating';
+END ;;
+
+-- 에러 번호가 1022, 1062 인 예외가 발생했을 때 클라이언트로 'Duplicate key in index'라는 메시지를 출력한다.
+-- 메시지를 출력하고 SP의 원래 실행 지점으로 돌아가서 나머지 코드를 실행한다.
+-- 이 예제 또한 SELECT 쿼리 문장을 이용해 커서를 호출자에게 반환하는 것이라서 스토어드 프로시저에서만 사용할 수 있다. (핸들러 자체는 사용할 수 있음)
+DECLARE CONTINUE HANDLER FOR 1022, 1062 SELECT 'Duplicate key in index';
+
+-- SQLSTATE가 23000인 이벤트가 발생했을 때 클라이언트로 Duplicate key in index 라는 결과 셋을 출력하고, SP의 원래 지점으로 돌아가 CONTINUE 한다.
+-- MySQL에서 중복 키 오류는 여러 개의 에러 번호를 가지고 있으므로 1022, 1062 보다 SQLSTATE 값을 명시(여기선 '23000')하는 것이 좀 더 좋다.
+# DECLARE CONTINUE HANDLER FOR SQLSTATE '23000' SELECT 'Duplicate key in index';
+CREATE PROCEDURE duplicate_key_handler_test ()
+BEGIN
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '23000' SELECT 'Duplicate key in index test 중'; -- 핸들러 정의
+    INSERT INTO employees VALUES (10001, NOW(), 'test', 'test', 1, now());
+END ;;
+CALL duplicate_key_handler_test(); -- Duplicate key in index test
+
+-- SELECT 문을 실행했지만 결과 레코드가 없거나, CURSOR 의 결과 셋에서 더는 읽어올 레코드가 남지 않았을 때
+-- process_done 로컬 변숫값을 1로 설정하고 스토어드 프로그램의 마지막 실행 지점으로 돌아가서 나머지 코드를 실행하는 예제
+DECLARE CONTINUE HANDLER FOR NOT FOUND SET process_done = 1
+-- 위의 예제랑 똑같은데 SQLSTATE를 이용하는 방식 - SQLSTATE 가 '02000' 이면 NOT FOUND 와 똑같다.
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '02000' SET process_done = 1
+-- 위랑 똑같은데, MySQL에러 번호를 이용한 방식 - MySQL의 '1329' 에러 코드는 NOT FOUND 와 똑같다.
+    DECLARE CONTINUE HANDLER FOR 1329 SET process_done = 1;
+
+-- SQLWARNING, SQLEXCEPTION이 발생하면 모두 ROLLBACK 하고 클라이언트 화면에 에러와 경고 메시지를 출력한 뒤 SP 종료 예제
+DECLARE EXIT HANDLER FOR SQLWARNING, SQLEXCEPTION
+BEGIN
+ROLLBACK;
+SELECT 'Process terminated, Because error';
+SHOW ERRORS;
+SHOW WARNINGS;
+END;
+
+##### 14.2.6.4.3 - 컨디션(Condition)
+-- MySQL핸들러는 어떤 조건(이벤트)이 발생했을 때 실행할지 명시하는 여러 방법이 있는데, 그중 하나가 컨디션이다.
+/*
+    단순히 MySQL의 에러 번호나 SQLSTATE 숫자 값만으로 어떤 조건을 의미하는지 이해하기 어려울 수도 있는데,
+    각 에러 번호나 SQLSTATE 가 어떤 의미인지 예측할 수 있는 이름을 만들어 두면 더 쉽게 코드를 이해할 수 있다.
+    이러한 조건의 이름을 등록하는 것이 컨디션이다.
+    SQLWARNING, SQLEXCEPTION, NOT FOUND 등은 MySQL이 미리 정의해 둔 컨디션이라고 볼 수 있다.
+*/
+
+-- 간단히 컨디션을 정의하는 방법
+DECLARE 컨디션_이름 CONDITION FOR condition_value
+-- 컨디션_이름은 부여하고 싶은 이름을 지정하면 되고, condition_value를 부여하는 방법은 다음과 같다.
+/*
+    condition_value는 2가지 방법
+
+    - MySQL의 에러 번호를 사용할 때는 contition_value에 바로 MySQL의 에러 번호를 입력하면 된다.
+        CONDITION을 정의할 때는 에러 코드의 값을 여러 개 동시에 명시할 수 없다.
+    - SQLSTATE를 명시하는 경우에는 SQLSTATE 키워드를 입력하한 뒤 SQLSTATE값을 입력하면 된다.
+*/
+-- MySQL 에러 번호를 이용한 컨디션 예
+DECLARE mysql_error_number_dup_key CONDITION FOR 1062;
+-- SQLSTATE를 이용해 컨디션을 정하는 예
+DECLARE sqlstate_number_dup_key CONDITION FOR SQLSTATE '02000';
+
+##### 14.2.6.4.4 - 컨디션을 사용하는 핸들러 정의
+-- 스토어드 함수에서 컨디션을 사용하는 예제
+-- 예제를 보기 전에 스토어드 함수를 만드려면 아래 조건을 확인해 봐야 한다.
+SHOW VARIABLES LIKE 'log_bin_trust_function_creators'; -- ON(1) 이어야 한다.
+SET GLOBAL log_bin_trust_function_creators = 1;
+-- SET GLOBAL log_bin_trust_function_creators = 0;
+
+-- employees 테이블에 INSERT 하는 예제인데, emp_no가 이미 있는 숫자라 이 함수를 호출할 때마다 -1이 표시돼야 한다.
+-- 만약, 10001 emp_no를 지우면 1이 화면에 표시되고, 해당 값이 INSERT 된다.
+DELIMITER //
+CREATE FUNCTION sf_testfunc()
+    RETURNS BIGINT
+BEGIN
+    DECLARE dup_key CONDITION FOR 1062;
+    DECLARE EXIT HANDLER FOR dup_key
+        BEGIN
+            RETURN -1;
+        END;
+
+    INSERT INTO employees VALUES (10001, now(), 'test', 'test', 1, now());
+    RETURN 1;
+END//
+DELIMITER ;
+SELECT sf_testfunc(); # employess 테이블의 empno가 10001인 값은 이미 존재하므로 -1이 나와야 된다.
+
+#### 14.2.6.5 - 시그널을 이용한 예외 발생
+-- 시그널(SIGNAL)을 사용해 예외를 발생시킬 수 있다. 프로그래밍 언어에서 보자면 핸들러는 catch 구문, 시그널은 throw 구문으로 이해하면 된다.
+-- 시그널 구문은 5.5 버전부터 지원된 기능이다. 이 전에는 존재하지 않는 테이블을 SELECT 하는 식으로 에러를 한들었다.
+
+-- 나눗셈 연산의 제수가 0이거나 NULL이면 에러를 전달하기 위한 예제
+-- 5.5 버전 이전에서 존재하지 않는 스토어드 프로시저를 호출해 에러를 내는 상황 - 읽기 어렵다.
+DELIMITER //
+CREATE FUNCTION sf_divide_old_style (p_dividend INT, p_divisor INT)
+    RETURNS INT
+BEGIN
+    IF p_divisor IS NULL THEN
+        CALL __undef_procedure_divisor_is_null();
+    ELSEIF p_divosor=0 THEN
+        CALL __undef_procedure_divisor_is_0();
+    ELSEIF p_dividend IS NULL THEN
+        RETURN 0;
+    END IF;
+    RETURN FLOOR(p_dividend / p_divisor);
+END//
+SELECT sf_divide_old_style(1, NULL); -- undef_procedure_divisor_is_null 이 없다는 에러 발생
+
+-- 5.5 버전 이후에서 위랑 같은 예제를 SIGNAL 로 구현하는 법
+DELIMITER //
+CREATE FUNCTION sf_divide_80_style (p_dividend INT, p_divisor INT)
+    RETURNS INT
+BEGIN
+    DECLARE null_divisor CONDITION FOR SQLSTATE '45000';
+
+    IF p_divisor IS NULL THEN
+        SIGNAL null_divisor -- SIGNAL의 조건은 위에서 명시한 바와 같이 SQLSTATE로 정의되어 있어야 한다.
+            SET MESSAGE_TEXT = 'Divisor can not be null', MYSQL_ERRNO = 9999;
+    ELSEIF p_divisor=0 THEN
+        SIGNAL SQLSTATE '45000' -- '45000'은 '정의되지 않은 사용자 오류' 정도의 의미를 가지는 값이다.
+            SET MESSAGE_TEXT = 'Divisor can not be 0', MYSQL_ERRNO = 9998;
+    ELSEIF p_dividend IS NULL THEN
+        SIGNAL SQLSTATE '01000'
+            SET MESSAGE_TEXT = 'Dividend is null, so regarding dividend as 0', MYSQL_ERRNO = 9997;
+        RETURN 0;
+    END IF;
+
+    RETURN FLOOR(p_dividend / p_divisor);
+END //
+SELECT sf_divide_80_style(NULL, 1); -- 0 (경고)
+show warnings;
+SELECT sf_divide_80_style(2, 1); -- 2
+SELECT sf_divide_80_style(2, NULL); -- Divisor can not be null 에러 메시지 출력
+SELECT sf_divide_80_style(2, 0); -- Divisor can not be 0 에러 메시지 출력
+
+##### 14.2.6.5.2 - 핸들러 코드에서 SIGNAL 사용
+-- 핸들러는 SP에서 에러나 예외에 대한 처리를 담당하는데, 핸들러 코드에서 SIGNAL 명령을 사용해 에러를 다른 사용자 정의 예외로 변환해서 던지는 것도 가능하다.
+
+-- employees 테이블에서 num을 입력 받고, 1개의 레코드도 삭제되지 않으면 에러 발생
+-- 핸들러를 이용해 한 건도 삭제되지 않으면 에러를 발생시킨다. 핸들러에서 발생한 에러의 내용을 무시하고 SQLSTATE가 45000 에러를 다시 발생시킨다.
+-- 삭제된 레코드의 건수가 한 건이 아니라면 시그널 명령으로 '45000'에러를 또 발생시킨다.
+DELIMITER //
+CREATE PROCEDURE sp_remove_user (IN p_userid INT)
+BEGIN
+    DECLARE v_affectedrowcount INT DEFAULT 0;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+        BEGIN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Can not remove user information', MYSQL_ERRNO = 9999;
+        END ;
+    -- 사용자 정보 삭제
+    DELETE FROM employees WHERE emp_no = p_userid;
+-- 위에서 실행된 DELETE 쿼리로 삭제된 레코드 건수 확인
+    SELECT ROW_COUNT() INTO v_affectedrowcount;
+-- 삭제된 레코드 건수가 1건이 아닌 경우 에러 발생
+    IF v_affectedrowcount <> 1 THEN
+        SIGNAL SQLSTATE '45000';
+    END IF;
+END //
+CALL sp_remove_user(12); -- Can not remove user informaion 에러
+
+#### 14.2.6.6 - 커서
+-- 일반적인 프로그래밍 언어에서 SELECT 쿼리의 결과를 사용하는 방법과 거의 흡사.
+-- 스토어드 프로그램의 커서는 JDBC 프로그램에서 자주 사용하는 ResultSet이랑 비슷하다.
+-- PHP 프로그램에서는 mysql_query() 함수로 반환되는 결과와 똑같다.
+-- 하지만 SP에서의 커서는 프로그래밍 언어에서 사용하는 ResultSet에 비해 기능이 제약적이다.
+/*
+    SP 커서의 제약사항 두 가지
+
+    - SP의 커서는 전 방향(전진) 읽기만 가능하다.
+    - SP에서는 커서의 컬럼으 바로 업데이트 하는 것(Updateble ResultSet)이 불가능하다.
+*/
+/*
+    DBMS의 커서는 센서티브 커서와 인센서티브 커서로 구분할 수 있다.
+
+    센서티브(Sensitive) 커서 :
+        - 일치하는 레코드에 대한 정보를 실제 레코드의 포인터만으로 유지하는 형태
+        - 커서를 이용해 컬럼의 데이터를 변경하거나 삭제하는 것이 가능.
+        - 컬럼의 값이 변경돼서 커서를 생성한 SELECT 쿼리의 조건에 더는 일치하지 않거나 레코드가 삭제되면 커서에서도 즉시 반영
+        - 별도로 임시 테이블로 레코드를 복사하지 않기 때문에 커서의 오픈이 빠르다.
+
+    인센서티브(Insensitive) 커서 :
+        - 일치하는 레도르를 별도의 임시 테이블로 복사해서 가지고 있는 형태
+        - SELECT 쿼리에 부합되는 결과를 우선적으로 임시 테이블로 복사해야 하기 때문에 느림
+        - 이미 임시테이블로 복사된 데이터를 조회하는 것이라서 커서를 통해 값을 변경하거나 레코드를 삭제하는 작업이 불가능
+        - 다른 트랜잭션과의 충돌은 발생하지 않는다.
+
+    센서티브 인센서티브 혼용해서 사용하는 방식 - 어센서티브(asensivive) 라고 하는데, MySQL의 SP에서 정의되는 커서는 여기에 속한다.
+    그래서, MySQL의 커서는 데이터가 임시 테이블로 복사될 수도 있고, 아닐 수도 있다.
+    그렇다고 커서가 센서티브인지 인센서티브인지 알 수 없으며, 결론적으로 커서를 통해 컬럼을 삭제하거나 변경하는 것이 불가능하다.
+*/
+/*
+    커서의 사용 방식
+
+    1. SP에서 SELECT 쿼리 문장으로 커서를 정의
+    2. 정의된 커서를 오픈(OPEN)하면 커서로 정의된 쿼리가 MySQL 서버에서 실행되고 결과를 가져온다.
+    3. 오픈된 커서는 패치(FETCH) 명령으로 레코드 단위로 읽어서 사용할 수 있음.
+    4. 사용이 완료된 후에 CLOSE 명령으로 커서를 닫으면 관련 자원이 모두 해제된다.
+*/
+DELIMITER &&
+CREATE FUNCTION sf_emp_count(p_dept_no VARCHAR(10) CHARACTER SET utf8mb4)
+    RETURNS BIGINT
+BEGIN
+    DECLARE v_total_count INT DEFAULT 0; -- 사원 번호가 20000보다 큰 사원의 수를 누적하기 위한 변수
+    DECLARE v_no_more_date TINYINT DEFAULT 0; -- 커서에 더 읽어야 할 레코드가 남아 있는지 여부를 위한 플래그 변수
+    DECLARE v_emp_no INTEGER; -- 커서를 통해 SELECT된 사원 번호를 임시로 담아 둘 변수
+    DECLARE v_from_date DATE; -- 커서를 통해 SELECT된 사원의 입사 일자를 임시로 담아 둘 변수
+    -- v_emp_list라는 이름으로 커서 정의
+    DECLARE v_emp_list CURSOR FOR
+        SELECT emp_no, from_date FROM dept_emp WHERE dept_no = p_dept_no;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_no_more_date = 1; -- 커서로부터 더 읽을 데이터가 있는지 플래그 변경을 위한 핸들러
+
+    -- 정의된 v_emp_list 커서 오픈
+    OPEN v_emp_list;
+    REPEAT
+        FETCH v_emp_list INTO v_emp_no, v_from_date; -- 커서로부터 레코드를 한 개씩 읽어서 변수에 저장
+        IF v_emp_no > 20000 THEN
+            SET v_total_count = v_total_count + 1;
+        END IF;
+    UNTIL v_no_more_date END REPEAT;
+
+    -- v_emp_list 커서를 닫고 관련 자원을 반납
+    CLOSE v_emp_list;
+
+    RETURN v_total_count;
+END &&
+DELIMITER ;
+drop function sf_emp_count;
+SELECT sf_emp_count('d002');
+-- 아래와 같은 에러가 나오는데, 이유를 모르겠다.
+-- CURSOR를 생성할 때 dept_no = p_dept_no 이 부분에서 에러가 나는거 같은데, 왜 그렇지..? 문자 집합의 형식이 달라서 그런거 같은데, 어떻게 맞추지?
+-- [HY000][1267] Illegal mix of collations (utf8mb4_general_ci,IMPLICIT) and (utf8mb4_0900_ai_ci,IMPLICIT) for operation '='
+
+select * From dept_emp;
+desc dept_emp;
+select emp_no, from_date from dept_emp where dept_no = 'd002';
+select count(*) from dept_emp where dept_no = 'd001' AND emp_no > 20000;
