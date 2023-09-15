@@ -4,7 +4,7 @@ services:
       build: .
       command: --default-authentication-plugin=mysql_native_password
       environment:
-        MYSQL_ROOT_PASSWORD: password1
+        MYSQL_ROOT_PASSWORD: 1234
       volumes:
       - ./db-data1:/var/lib/mysql
       ports:
@@ -14,7 +14,7 @@ services:
       build: .
       command: --default-authentication-plugin=mysql_native_password
       environment:
-        MYSQL_ROOT_PASSWORD: password2
+        MYSQL_ROOT_PASSWORD: 1234
       ports:
       - "3307:3306"
       volumes:
@@ -24,7 +24,7 @@ services:
       build: .
       command: --default-authentication-plugin=mysql_native_password
       environment:
-        MYSQL_ROOT_PASSWORD: password3
+        MYSQL_ROOT_PASSWORD: 1234
       ports:
       - "3308:3306"
       volumes:
