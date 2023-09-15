@@ -1,0 +1,39 @@
+version: "3.3"
+services:
+  mysql-dev1:
+      build: .
+      command: --default-authentication-plugin=mysql_native_password
+      environment:
+        MYSQL_ROOT_PASSWORD: 1234
+      volumes:
+      - ./db-data1:/var/lib/mysql
+      ports:
+      - "3306:3306"
+  
+  mysql-dev2:
+      build: .
+      command: --default-authentication-plugin=mysql_native_password
+      environment:
+        MYSQL_ROOT_PASSWORD: 1234
+      ports:
+      - "3307:3306"
+      volumes:
+      - ./db-data2:/var/lib/mysql
+  
+  mysql-dev3:
+      build: .
+      command: --default-authentication-plugin=mysql_native_password
+      environment:
+        MYSQL_ROOT_PASSWORD: 1234
+      ports:
+      - "3308:3306"
+      volumes:
+      - ./db-data3:/var/lib/mysql
+
+volumes:
+  db-data1:
+    driver: local
+  db-data2:
+    driver: local
+  db-data3:
+    driver: local
